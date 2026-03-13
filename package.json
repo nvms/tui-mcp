@@ -1,0 +1,24 @@
+{
+  "name": "tui-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/server.js",
+  "bin": {
+    "tui-mcp": "src/server.js"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null; true"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "MCP server for observing and interacting with TUI applications",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@xterm/headless": "^5.5.0",
+    "canvas": "^3.1.0",
+    "node-pty": "^1.0.0",
+    "zod": "^3.25.0"
+  }
+}
