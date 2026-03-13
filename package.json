@@ -6,8 +6,15 @@
   "bin": {
     "tui-mcp": "src/server.js"
   },
+  "files": [
+    "src",
+    "dist",
+    "build.js"
+  ],
   "scripts": {
     "start": "node src/server.js",
+    "build": "node build.js",
+    "prepublishOnly": "npm run build",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null; true"
   },
   "keywords": [],
@@ -20,5 +27,9 @@
     "canvas": "^3.1.0",
     "node-pty": "^1.0.0",
     "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@trendr/core": "^0.2.2",
+    "esbuild": "^0.27.4"
   }
 }

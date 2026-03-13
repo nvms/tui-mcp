@@ -2,8 +2,11 @@ import pty from 'node-pty'
 const { spawn } = pty
 import xterm from '@xterm/headless'
 const { Terminal } = xterm
-import { renderToPng, renderToText, readRegion } from './renderer.js'
+import { renderToPng, renderToText, renderToAnsi, readRegion } from './renderer.js'
 import { resolveKeys, buildMouseSequence } from './keys.js'
+import { EventEmitter } from 'events'
+
+export const events = new EventEmitter()
 
 let nextId = 1
 const sessions = new Map()
@@ -34,8 +37,6 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
     env: { ...process.env, ...env },
   })
 
-  pty.onData((data) => term.write(data))
-
   const id = String(nextId++)
   const session = {
     id,
@@ -47,14 +48,27 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
     rows,
     exited: false,
     exitCode: null,
+    _bufferTimer: null,
   }
+
+  pty.onData((data) => {
+    term.write(data)
+    if (!session._bufferTimer) {
+      session._bufferTimer = setTimeout(() => {
+        session._bufferTimer = null
+        events.emit('buffer', session.id)
+      }, 150)
+    }
+  })
 
   pty.onExit(({ exitCode }) => {
     session.exited = true
     session.exitCode = exitCode
+    events.emit('exited', session.id, exitCode)
   })
 
   sessions.set(id, session)
+  events.emit('created', sessionInfo(session))
   return { sessionId: id, pid: pty.pid }
 }
 
@@ -64,8 +78,8 @@ function get(sessionId) {
   return s
 }
 
-export function listSessions() {
-  return [...sessions.values()].map(s => ({
+function sessionInfo(s) {
+  return {
     sessionId: s.id,
     command: s.command,
     pid: s.pid,
@@ -73,13 +87,18 @@ export function listSessions() {
     rows: s.rows,
     exited: s.exited,
     exitCode: s.exitCode,
-  }))
+  }
+}
+
+export function listSessions() {
+  return [...sessions.values()].map(sessionInfo)
 }
 
 export function kill(sessionId) {
   const s = get(sessionId)
   s.pty.kill()
   sessions.delete(sessionId)
+  events.emit('killed', sessionId)
 }
 
 export function resize(sessionId, cols, rows) {
@@ -98,6 +117,11 @@ export function screenshot(sessionId) {
 export function snapshot(sessionId) {
   const s = get(sessionId)
   return renderToText(s.term)
+}
+
+export function ansiSnapshot(sessionId) {
+  const s = get(sessionId)
+  return renderToAnsi(s.term)
 }
 
 export function getRegion(sessionId, row, col, width, height) {

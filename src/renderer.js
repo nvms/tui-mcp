@@ -96,6 +96,71 @@ export function renderToText(term) {
   return lines.join('\n')
 }
 
+function fgSgr(cell) {
+  if (cell.isFgRGB()) {
+    const c = cell.getFgColor()
+    return `38;2;${(c >> 16) & 0xFF};${(c >> 8) & 0xFF};${c & 0xFF}`
+  }
+  if (cell.isFgPalette()) return `38;5;${cell.getFgColor()}`
+  return null
+}
+
+function bgSgr(cell) {
+  if (cell.isBgRGB()) {
+    const c = cell.getBgColor()
+    return `48;2;${(c >> 16) & 0xFF};${(c >> 8) & 0xFF};${c & 0xFF}`
+  }
+  if (cell.isBgPalette()) return `48;5;${cell.getBgColor()}`
+  return null
+}
+
+export function renderToAnsi(term) {
+  const buf = term.buffer.active
+  const nullCell = buf.getNullCell()
+  const lines = []
+
+  for (let y = 0; y < term.rows; y++) {
+    const line = buf.getLine(y)
+    if (!line) { lines.push(''); continue }
+
+    let out = ''
+    let prevSgr = ''
+
+    for (let x = 0; x < term.cols; x++) {
+      line.getCell(x, nullCell)
+      const char = nullCell.getChars() || ' '
+
+      const params = []
+      if (nullCell.isBold()) params.push('1')
+      if (nullCell.isDim()) params.push('2')
+      if (nullCell.isItalic()) params.push('3')
+      if (nullCell.isUnderline()) params.push('4')
+      if (nullCell.isInverse()) params.push('7')
+      if (nullCell.isStrikethrough()) params.push('9')
+
+      const fg = fgSgr(nullCell)
+      if (fg) params.push(fg)
+      const bg = bgSgr(nullCell)
+      if (bg) params.push(bg)
+
+      const sgr = params.join(';')
+
+      if (sgr !== prevSgr) {
+        out += '\x1b[0m'
+        if (sgr) out += `\x1b[${sgr}m`
+        prevSgr = sgr
+      }
+
+      out += char
+    }
+
+    if (prevSgr) out += '\x1b[0m'
+    lines.push(out)
+  }
+
+  return lines.join('\n')
+}
+
 export function readRegion(term, row, col, width, height) {
   const buf = term.buffer.active
   const lines = []

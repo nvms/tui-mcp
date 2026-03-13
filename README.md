@@ -60,6 +60,16 @@ claude mcp add --scope user tui-mcp -- npx tui-mcp
 
 Most MCP servers wrap one specific tool or API. tui-mcp wraps the terminal itself, which is the universal interface that all tools already speak. It's MCP's `eval()`.
 
+## Monitor
+
+Watch all active sessions in real-time from your terminal:
+
+```bash
+npx tui-mcp monitor
+```
+
+Session list on the left, live ANSI-rendered terminal preview on the right. j/k to navigate sessions, Enter to toggle fullscreen, q to quit. Requires the MCP server to be running.
+
 ## How it works
 
 ```

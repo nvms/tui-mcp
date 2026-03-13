@@ -1,9 +1,22 @@
 #!/usr/bin/env node
 
+if (process.argv[2] === 'monitor') {
+  const { execSync } = await import('child_process')
+  const { dirname, join } = await import('path')
+  const { fileURLToPath } = await import('url')
+  const __dirname = dirname(fileURLToPath(import.meta.url))
+  const app = join(__dirname, '..', 'dist', 'monitor.js')
+  try { execSync(`node ${app}`, { stdio: 'inherit' }) } catch {}
+  process.exit(0)
+}
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import * as session from './session.js'
+import { startIpc } from './ipc.js'
+
+startIpc()
 
 const server = new McpServer(
   { name: 'tui-mcp', version: '1.0.0' },
@@ -112,22 +125,23 @@ server.registerTool('cursor', {
 
 server.registerTool('send_keys', {
   title: 'Send Keys',
-  description: 'Send a keystroke or key combination to the TUI app. Supports named keys (Enter, Tab, Escape, Up, Down, Left, Right, Backspace, Delete, Home, End, PageUp, PageDown, F1-F12, Space) and modifiers (Ctrl+, Alt+, Shift+). Examples: "Enter", "Ctrl+C", "Alt+Tab", "Shift+Up", "q", "j".',
+  description: 'Send keystrokes to the TUI app. Use this for special keys and shortcuts, not for typing text (use send_text for that). Accepts a single key descriptor string or an array of key descriptors to send in sequence. Supports named keys (Enter, Tab, Escape, Up, Down, Left, Right, Backspace, Delete, Home, End, PageUp, PageDown, F1-F12, Space) and modifiers (Ctrl+, Alt+, Shift+). Examples: "Enter", "Ctrl+C", ["Down", "Down", "Down", "Enter"], ["Escape", ":wq", "Enter"].',
   inputSchema: {
     sessionId: z.string().describe('Session ID'),
-    keys: z.string().describe('Key descriptor (e.g. "Enter", "Ctrl+C", "Up", "q")'),
+    keys: z.union([z.string(), z.array(z.string())]).describe('Key descriptor or array of key descriptors (e.g. "Enter", "Ctrl+C", ["Down", "Down", "Enter"])'),
   },
 }, async ({ sessionId, keys }) => {
-  session.sendKeys(sessionId, keys)
-  return { content: [{ type: 'text', text: `sent: ${keys}` }] }
+  const seq = Array.isArray(keys) ? keys : [keys]
+  for (const k of seq) session.sendKeys(sessionId, k)
+  return { content: [{ type: 'text', text: `sent: ${seq.join(', ')}` }] }
 })
 
 server.registerTool('send_text', {
   title: 'Send Text',
-  description: 'Type a string of characters into the TUI app. Use this for text input rather than sending individual keys.',
+  description: 'Type a string of characters into the TUI app. The text is sent exactly as provided - MCP JSON handles escaping, so do not double-escape. To type a literal backslash, send one backslash. Include a trailing newline (\\n) if you want to press Enter after the text. Use send_keys instead for special keys like Ctrl+C or arrow keys.',
   inputSchema: {
     sessionId: z.string().describe('Session ID'),
-    text: z.string().describe('Text to type'),
+    text: z.string().describe('Text to type. Include \\n for Enter/newline.'),
   },
 }, async ({ sessionId, text }) => {
   session.sendText(sessionId, text)
