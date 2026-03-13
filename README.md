@@ -8,6 +8,10 @@ Launch any terminal app in a managed pty, take screenshots, read text, send keys
 ![idea](assets/idea.png)
 ![htop](assets/htop.png)
 
+<a href="https://glama.ai/mcp/servers/nvms/tui-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/nvms/tui-mcp/badge" alt="tui-mcp MCP server" />
+</a>
+
 ## Setup
 
 ```bash
