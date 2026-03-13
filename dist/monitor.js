@@ -2081,74 +2081,134 @@ function SplitPane({ children, direction = "row", sizes: sizesProp, border = "si
 
 // src/monitor/client.js
 import net from "net";
+import fs from "fs";
 import path from "path";
 import os from "os";
 import { EventEmitter } from "events";
-var SOCK_PATH = path.join(os.homedir(), ".tui-mcp", "sock");
+var SOCK_DIR = path.join(os.homedir(), ".tui-mcp");
+var SCAN_MS = 2e3;
 function connect() {
   const emitter = new EventEmitter();
-  let buffer = "";
-  const socket = net.createConnection(SOCK_PATH);
-  socket.on("data", (chunk) => {
-    buffer += chunk.toString();
-    let nl;
-    while ((nl = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, nl);
-      buffer = buffer.slice(nl + 1);
+  const connections = /* @__PURE__ */ new Map();
+  let destroyed = false;
+  function scanAndConnect() {
+    if (destroyed) return;
+    let files = [];
+    try {
+      files = fs.readdirSync(SOCK_DIR).filter((f) => f.endsWith(".sock"));
+    } catch {
+    }
+    for (const file of files) {
+      const sockPath = path.join(SOCK_DIR, file);
+      if (connections.has(sockPath)) continue;
+      connectOne(sockPath);
+    }
+    setTimeout(scanAndConnect, SCAN_MS);
+  }
+  function connectOne(sockPath) {
+    let buffer = "";
+    const socket = net.createConnection(sockPath);
+    connections.set(sockPath, socket);
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString();
+      let nl;
+      while ((nl = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, nl);
+        buffer = buffer.slice(nl + 1);
+        try {
+          const msg = JSON.parse(line);
+          msg._source = sockPath;
+          emitter.emit("message", msg);
+        } catch {
+        }
+      }
+    });
+    socket.on("error", () => {
+    });
+    socket.on("close", () => {
+      connections.delete(sockPath);
+      emitter.emit("server_lost", sockPath);
+    });
+    socket.on("connect", () => {
+      emitter.emit("connected", sockPath);
+    });
+  }
+  scanAndConnect();
+  emitter.destroy = () => {
+    destroyed = true;
+    for (const socket of connections.values()) {
       try {
-        emitter.emit("message", JSON.parse(line));
+        socket.destroy();
       } catch {
       }
     }
-  });
-  socket.on("error", (err) => emitter.emit("error", err));
-  socket.on("close", () => emitter.emit("close"));
+    connections.clear();
+  };
   return emitter;
 }
 
 // src/monitor/index.jsx
 var CYAN = "#00bcd4";
 var DIM2 = "#555555";
+function sessionKey(source, sessionId) {
+  return `${source}:${sessionId}`;
+}
+function sortByPid(list) {
+  return [...list].sort((a, b) => a.pid - b.pid);
+}
 function App() {
   const [sessions, setSessions] = createSignal([]);
   const [selected, setSelected] = createSignal(0);
   const [buffers, setBuffers] = createSignal({});
   const [fullscreen, setFullscreen] = createSignal(false);
   const [connected, setConnected] = createSignal(false);
-  const [error, setError] = createSignal(null);
   createEffect(() => {
     const client = connect();
     client.on("message", (msg) => {
+      const src = msg._source;
       if (msg.type === "sessions") {
-        setSessions(msg.sessions);
-        setConnected(true);
+        setSessions((prev) => {
+          const other = prev.filter((s) => s._source !== src);
+          const incoming = msg.sessions.map((s) => ({ ...s, _source: src, _key: sessionKey(src, s.sessionId) }));
+          return sortByPid([...other, ...incoming]);
+        });
       }
       if (msg.type === "created") {
-        setSessions((prev) => [...prev, msg.session]);
+        const s = { ...msg.session, _source: src, _key: sessionKey(src, msg.session.sessionId) };
+        setSessions((prev) => sortByPid([...prev, s]));
       }
       if (msg.type === "killed") {
-        setSessions((prev) => prev.filter((s) => s.sessionId !== msg.sessionId));
+        const key = sessionKey(src, msg.sessionId);
+        setSessions((prev) => prev.filter((s) => s._key !== key));
         setBuffers((prev) => {
           const next = { ...prev };
-          delete next[msg.sessionId];
+          delete next[key];
           return next;
         });
       }
       if (msg.type === "exited") {
+        const key = sessionKey(src, msg.sessionId);
         setSessions((prev) => prev.map(
-          (s) => s.sessionId === msg.sessionId ? { ...s, exited: true, exitCode: msg.exitCode } : s
+          (s) => s._key === key ? { ...s, exited: true, exitCode: msg.exitCode } : s
         ));
       }
       if (msg.type === "buffer") {
-        setBuffers((prev) => ({ ...prev, [msg.sessionId]: msg.ansi }));
+        const key = sessionKey(src, msg.sessionId);
+        setBuffers((prev) => ({ ...prev, [key]: msg.ansi }));
       }
     });
-    client.on("error", (err) => {
-      setConnected(false);
-      setError(err.message);
+    client.on("connected", () => setConnected(true));
+    client.on("server_lost", (src) => {
+      setSessions((prev) => prev.filter((s) => s._source !== src));
+      setBuffers((prev) => {
+        const next = { ...prev };
+        for (const k of Object.keys(next)) {
+          if (k.startsWith(src + ":")) delete next[k];
+        }
+        return next;
+      });
     });
-    client.on("close", () => setConnected(false));
-    onCleanup(() => client.removeAllListeners());
+    onCleanup(() => client.destroy());
   });
   useInput(({ key }) => {
     if (key === "q") process.exit(0);
@@ -2158,10 +2218,10 @@ function App() {
   const currentSession = () => sessions()[selected()];
   const currentBuffer = () => {
     const s = currentSession();
-    return s ? buffers()[s.sessionId] || "" : "";
+    return s ? buffers()[s._key] || "" : "";
   };
   if (!connected()) {
-    return /* @__PURE__ */ jsx("box", { style: { padding: 1 }, children: /* @__PURE__ */ jsx("text", { style: { color: error() ? "red" : DIM2 }, children: error() ? `could not connect: ${error()}` : "connecting to tui-mcp..." }) });
+    return /* @__PURE__ */ jsx("box", { style: { padding: 1 }, children: /* @__PURE__ */ jsx("text", { style: { color: DIM2 }, children: "waiting for tui-mcp server..." }) });
   }
   if (fullscreen()) {
     return /* @__PURE__ */ jsxs("box", { style: { flexDirection: "column", height: "100%" }, children: [
@@ -2232,15 +2292,15 @@ function SessionRow({ session, selected, focused }) {
   const fg = selected ? "black" : null;
   const dot = session.exited ? "o" : "*";
   const dotColor = selected ? "black" : session.exited ? DIM2 : CYAN;
-  const cmd = session.command.length > 20 ? session.command.slice(0, 20) + "..." : session.command;
+  const cmd = session.command.length > 18 ? session.command.slice(0, 18) + ".." : session.command;
+  const pidStr = String(session.pid).padEnd(6);
   return /* @__PURE__ */ jsxs("box", { style: { flexDirection: "row", paddingX: 1, bg }, children: [
-    /* @__PURE__ */ jsx("text", { style: { color: dotColor }, children: dot }),
-    /* @__PURE__ */ jsxs("text", { style: { color: fg || "#aaaaaa" }, children: [
-      " ",
-      session.sessionId,
-      " ",
-      cmd
-    ] })
+    /* @__PURE__ */ jsxs("text", { style: { color: dotColor }, children: [
+      dot,
+      " "
+    ] }),
+    /* @__PURE__ */ jsx("text", { style: { color: fg || DIM2 }, children: pidStr }),
+    /* @__PURE__ */ jsx("text", { style: { color: fg || "#aaaaaa" }, children: cmd })
   ] });
 }
 function StatusBar() {

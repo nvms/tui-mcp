@@ -4,8 +4,7 @@ import path from 'path'
 import os from 'os'
 import * as session from './session.js'
 
-const SOCK_DIR = path.join(os.homedir(), '.tui-mcp')
-const SOCK_PATH = path.join(SOCK_DIR, 'sock')
+export const SOCK_DIR = path.join(os.homedir(), '.tui-mcp')
 
 const clients = new Set()
 
@@ -42,7 +41,7 @@ session.events.on('buffer', (sessionId) => {
 export function startIpc() {
   fs.mkdirSync(SOCK_DIR, { recursive: true })
 
-  try { fs.unlinkSync(SOCK_PATH) } catch {}
+  const sockPath = path.join(SOCK_DIR, `${process.pid}.sock`)
 
   const server = net.createServer((socket) => {
     clients.add(socket)
@@ -61,10 +60,10 @@ export function startIpc() {
     socket.on('error', () => clients.delete(socket))
   })
 
-  server.listen(SOCK_PATH)
+  server.listen(sockPath)
 
   const cleanup = () => {
-    try { fs.unlinkSync(SOCK_PATH) } catch {}
+    try { fs.unlinkSync(sockPath) } catch {}
   }
 
   process.on('exit', cleanup)

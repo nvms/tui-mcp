@@ -7,57 +7,77 @@ import { connect } from './client.js'
 const CYAN = '#00bcd4'
 const DIM = '#555555'
 
+function sessionKey(source, sessionId) {
+  return `${source}:${sessionId}`
+}
+
+function sortByPid(list) {
+  return [...list].sort((a, b) => a.pid - b.pid)
+}
+
 function App() {
   const [sessions, setSessions] = createSignal([])
   const [selected, setSelected] = createSignal(0)
   const [buffers, setBuffers] = createSignal({})
   const [fullscreen, setFullscreen] = createSignal(false)
   const [connected, setConnected] = createSignal(false)
-  const [error, setError] = createSignal(null)
 
   createEffect(() => {
     const client = connect()
 
     client.on('message', (msg) => {
+      const src = msg._source
+
       if (msg.type === 'sessions') {
-        setSessions(msg.sessions)
-        setConnected(true)
+        setSessions(prev => {
+          const other = prev.filter(s => s._source !== src)
+          const incoming = msg.sessions.map(s => ({ ...s, _source: src, _key: sessionKey(src, s.sessionId) }))
+          return sortByPid([...other, ...incoming])
+        })
       }
 
       if (msg.type === 'created') {
-        setSessions(prev => [...prev, msg.session])
+        const s = { ...msg.session, _source: src, _key: sessionKey(src, msg.session.sessionId) }
+        setSessions(prev => sortByPid([...prev, s]))
       }
 
       if (msg.type === 'killed') {
-        setSessions(prev => prev.filter(s => s.sessionId !== msg.sessionId))
+        const key = sessionKey(src, msg.sessionId)
+        setSessions(prev => prev.filter(s => s._key !== key))
         setBuffers(prev => {
           const next = { ...prev }
-          delete next[msg.sessionId]
+          delete next[key]
           return next
         })
       }
 
       if (msg.type === 'exited') {
+        const key = sessionKey(src, msg.sessionId)
         setSessions(prev => prev.map(s =>
-          s.sessionId === msg.sessionId
-            ? { ...s, exited: true, exitCode: msg.exitCode }
-            : s
+          s._key === key ? { ...s, exited: true, exitCode: msg.exitCode } : s
         ))
       }
 
       if (msg.type === 'buffer') {
-        setBuffers(prev => ({ ...prev, [msg.sessionId]: msg.ansi }))
+        const key = sessionKey(src, msg.sessionId)
+        setBuffers(prev => ({ ...prev, [key]: msg.ansi }))
       }
     })
 
-    client.on('error', (err) => {
-      setConnected(false)
-      setError(err.message)
+    client.on('connected', () => setConnected(true))
+
+    client.on('server_lost', (src) => {
+      setSessions(prev => prev.filter(s => s._source !== src))
+      setBuffers(prev => {
+        const next = { ...prev }
+        for (const k of Object.keys(next)) {
+          if (k.startsWith(src + ':')) delete next[k]
+        }
+        return next
+      })
     })
 
-    client.on('close', () => setConnected(false))
-
-    onCleanup(() => client.removeAllListeners())
+    onCleanup(() => client.destroy())
   })
 
   useInput(({ key }) => {
@@ -69,17 +89,13 @@ function App() {
   const currentSession = () => sessions()[selected()]
   const currentBuffer = () => {
     const s = currentSession()
-    return s ? buffers()[s.sessionId] || '' : ''
+    return s ? buffers()[s._key] || '' : ''
   }
 
   if (!connected()) {
     return (
       <box style={{ padding: 1 }}>
-        <text style={{ color: error() ? 'red' : DIM }}>
-          {error()
-            ? `could not connect: ${error()}`
-            : 'connecting to tui-mcp...'}
-        </text>
+        <text style={{ color: DIM }}>waiting for tui-mcp server...</text>
       </box>
     )
   }
@@ -161,14 +177,17 @@ function SessionRow({ session, selected, focused }) {
   const dot = session.exited ? 'o' : '*'
   const dotColor = selected ? 'black' : (session.exited ? DIM : CYAN)
 
-  const cmd = session.command.length > 20
-    ? session.command.slice(0, 20) + '...'
+  const cmd = session.command.length > 18
+    ? session.command.slice(0, 18) + '..'
     : session.command
+
+  const pidStr = String(session.pid).padEnd(6)
 
   return (
     <box style={{ flexDirection: 'row', paddingX: 1, bg }}>
-      <text style={{ color: dotColor }}>{dot}</text>
-      <text style={{ color: fg || '#aaaaaa' }}> {session.sessionId} {cmd}</text>
+      <text style={{ color: dotColor }}>{dot} </text>
+      <text style={{ color: fg || DIM }}>{pidStr}</text>
+      <text style={{ color: fg || '#aaaaaa' }}>{cmd}</text>
     </box>
   )
 }
