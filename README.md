@@ -1,6 +1,6 @@
 # tui-mcp
 
-What [Chrome DevTools MCP](https://github.com/anthropics/anthropic-mcp-chrome-devtools) is for the browser, tui-mcp is for the terminal.
+What [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) is for the browser, tui-mcp is for the terminal.
 
 Launch any terminal app in a managed pty, take screenshots, read text, send keystrokes. The app thinks it's running in a real terminal. Works with any TUI framework or no framework at all - vim, htop, bubbletea, textual, ink, inquirer, trend, ncurses, whatever.
 

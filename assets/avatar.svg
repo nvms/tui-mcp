@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="96" fill="#1e1e1e"/>
+
+  <!-- terminal window -->
+  <rect x="56" y="80" width="400" height="300" rx="16" fill="#2d2d2d" stroke="#555" stroke-width="3"/>
+
+  <!-- title bar -->
+  <rect x="56" y="80" width="400" height="36" rx="16" fill="#383838"/>
+  <rect x="56" y="100" width="400" height="16" fill="#383838"/>
+  <circle cx="84" cy="98" r="7" fill="#ff5f57"/>
+  <circle cx="108" cy="98" r="7" fill="#febc2e"/>
+  <circle cx="132" cy="98" r="7" fill="#28c840"/>
+
+  <!-- terminal text lines -->
+  <rect x="84" y="140" width="120" height="10" rx="3" fill="#6ec8f5" opacity="0.9"/>
+  <rect x="212" y="140" width="80" height="10" rx="3" fill="#d4d4d4" opacity="0.5"/>
+
+  <rect x="84" y="168" width="60" height="10" rx="3" fill="#c792ea" opacity="0.9"/>
+  <rect x="152" y="168" width="160" height="10" rx="3" fill="#c3e88d" opacity="0.7"/>
+
+  <rect x="84" y="196" width="90" height="10" rx="3" fill="#d4d4d4" opacity="0.5"/>
+  <rect x="182" y="196" width="110" height="10" rx="3" fill="#ffcb6b" opacity="0.7"/>
+
+  <rect x="84" y="224" width="140" height="10" rx="3" fill="#89ddff" opacity="0.6"/>
+
+  <!-- cursor block -->
+  <rect x="84" y="256" width="10" height="16" rx="2" fill="#d4d4d4" opacity="0.9">
+    <animate attributeName="opacity" values="0.9;0.2;0.9" dur="1.2s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- magnifying glass overlay (bottom right) -->
+  <g transform="translate(320, 290)">
+    <circle cx="60" cy="60" r="56" fill="#1e1e1e" stroke="#f5a623" stroke-width="8"/>
+    <circle cx="60" cy="60" r="40" fill="none" stroke="#f5a623" stroke-width="5" opacity="0.4"/>
+    <line x1="100" y1="100" x2="140" y2="140" stroke="#f5a623" stroke-width="10" stroke-linecap="round"/>
+
+    <!-- small terminal lines inside magnifier -->
+    <rect x="34" y="44" width="36" height="6" rx="2" fill="#6ec8f5" opacity="0.8"/>
+    <rect x="34" y="56" width="52" height="6" rx="2" fill="#c3e88d" opacity="0.8"/>
+    <rect x="34" y="68" width="24" height="6" rx="2" fill="#ffcb6b" opacity="0.8"/>
+  </g>
+</svg>
