@@ -12,7 +12,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "description": "MCP server for observing and interacting with TUI applications",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
