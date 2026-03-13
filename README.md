@@ -11,13 +11,7 @@ Launch any terminal app in a managed pty, take screenshots, read text, send keys
 ## Setup
 
 ```bash
-npm install
-```
-
-Register with your MCP client. For example, with Claude Code:
-
-```bash
-claude mcp add --scope user tui-mcp node /path/to/tui-mcp/src/server.js
+claude mcp add --scope user tui-mcp -- npx tui-mcp
 ```
 
 ## Tools
