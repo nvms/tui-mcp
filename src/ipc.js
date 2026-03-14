@@ -42,6 +42,7 @@ export function startIpc() {
   fs.mkdirSync(SOCK_DIR, { recursive: true })
 
   const sockPath = path.join(SOCK_DIR, `${process.pid}.sock`)
+  try { fs.unlinkSync(sockPath) } catch {}
 
   const server = net.createServer((socket) => {
     clients.add(socket)
@@ -58,6 +59,10 @@ export function startIpc() {
 
     socket.on('close', () => clients.delete(socket))
     socket.on('error', () => clients.delete(socket))
+  })
+
+  server.on('error', (err) => {
+    console.error(`[tui-mcp] monitor IPC disabled: ${err.message}`)
   })
 
   server.listen(sockPath)

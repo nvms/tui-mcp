@@ -10,6 +10,7 @@ export const events = new EventEmitter()
 
 let nextId = 1
 const sessions = new Map()
+const INTERACTIVE_SHELLS = new Set(['bash', 'sh', 'zsh', 'fish', 'ksh'])
 
 function killAll() {
   for (const s of sessions.values()) {
@@ -24,8 +25,9 @@ process.on('SIGHUP', killAll)
 process.on('exit', killAll)
 
 export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
-  const args = typeof command === 'string' ? command.split(/\s+/) : command
+  const args = typeof command === 'string' ? command.split(/\s+/) : [...command]
   const cmd = args.shift()
+  if (cmd && args.length === 0 && INTERACTIVE_SHELLS.has(cmd)) args.push('-i')
 
   const term = new Terminal({ cols, rows, scrollback: 1000, allowProposedApi: true })
 
@@ -64,6 +66,10 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
   pty.onExit(({ exitCode }) => {
     session.exited = true
     session.exitCode = exitCode
+    if (session._bufferTimer) {
+      clearTimeout(session._bufferTimer)
+      session._bufferTimer = null
+    }
     events.emit('exited', session.id, exitCode)
   })
 
@@ -75,6 +81,12 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
 function get(sessionId) {
   const s = sessions.get(sessionId)
   if (!s) throw new Error(`no session with id "${sessionId}"`)
+  return s
+}
+
+function getRunning(sessionId) {
+  const s = get(sessionId)
+  if (s.exited) throw new Error(`session "${sessionId}" has already exited`)
   return s
 }
 
@@ -91,18 +103,18 @@ function sessionInfo(s) {
 }
 
 export function listSessions() {
-  return [...sessions.values()].map(sessionInfo)
+  return [...sessions.values()].filter(s => !s.exited).map(sessionInfo)
 }
 
 export function kill(sessionId) {
   const s = get(sessionId)
-  s.pty.kill()
+  if (!s.exited) s.pty.kill()
   sessions.delete(sessionId)
   events.emit('killed', sessionId)
 }
 
 export function resize(sessionId, cols, rows) {
-  const s = get(sessionId)
+  const s = getRunning(sessionId)
   s.pty.resize(cols, rows)
   s.term.resize(cols, rows)
   s.cols = cols
@@ -136,28 +148,35 @@ export function getCursor(sessionId) {
 }
 
 export function sendKeys(sessionId, keys) {
-  const s = get(sessionId)
+  const s = getRunning(sessionId)
   const seq = resolveKeys(keys)
   s.pty.write(seq)
 }
 
 export function sendText(sessionId, text) {
-  const s = get(sessionId)
+  const s = getRunning(sessionId)
   s.pty.write(text)
 }
 
 export function sendMouse(sessionId, action, x, y, button) {
-  const s = get(sessionId)
+  const s = getRunning(sessionId)
   const seq = buildMouseSequence(action, x, y, button)
   if (seq) s.pty.write(seq)
 }
 
 export function waitForText(sessionId, pattern, timeout = 5000) {
-  const s = get(sessionId)
+  const s = getRunning(sessionId)
   const regex = new RegExp(pattern)
 
   return new Promise((resolve, reject) => {
     const check = () => {
+      if (s.exited) {
+        clearTimeout(timer)
+        clearInterval(interval)
+        reject(new Error(`session "${sessionId}" exited before matching "${pattern}"`))
+        return
+      }
+
       const text = renderToText(s.term)
       if (regex.test(text)) {
         clearTimeout(timer)
@@ -177,13 +196,20 @@ export function waitForText(sessionId, pattern, timeout = 5000) {
 }
 
 export function waitForIdle(sessionId, timeout = 3000, debounce = 300) {
-  const s = get(sessionId)
+  const s = getRunning(sessionId)
 
   return new Promise((resolve, reject) => {
     let lastChange = Date.now()
     let lastSnapshot = renderToText(s.term)
 
     const interval = setInterval(() => {
+      if (s.exited) {
+        clearInterval(interval)
+        clearTimeout(timer)
+        reject(new Error(`session "${sessionId}" exited before becoming idle`))
+        return
+      }
+
       const current = renderToText(s.term)
       if (current !== lastSnapshot) {
         lastSnapshot = current

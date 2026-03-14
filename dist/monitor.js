@@ -2153,19 +2153,35 @@ var DIM2 = "#555555";
 function sessionKey(source, sessionId) {
   return `${source}:${sessionId}`;
 }
+function sourceLabel(source) {
+  return (source?.split("/").pop() || "?").replace(/\.sock$/, "");
+}
 function sortByPid(list) {
   return [...list].sort((a, b) => a.pid - b.pid);
 }
+function upsertSession(list, session) {
+  const next = list.filter((s) => s._key !== session._key);
+  next.push(session);
+  return sortByPid(next);
+}
 function App() {
   const [sessions, setSessions] = createSignal([]);
+  const [sources, setSources] = createSignal([]);
   const [selected, setSelected] = createSignal(0);
   const [buffers, setBuffers] = createSignal({});
   const [fullscreen, setFullscreen] = createSignal(false);
-  const [connected, setConnected] = createSignal(false);
+  const rememberSource = (src) => {
+    if (!src) return;
+    setSources((prev) => prev.includes(src) ? prev : [...prev, src].sort());
+  };
+  const forgetSource = (src) => {
+    setSources((prev) => prev.filter((s) => s !== src));
+  };
   createEffect(() => {
     const client = connect();
     client.on("message", (msg) => {
       const src = msg._source;
+      rememberSource(src);
       if (msg.type === "sessions") {
         setSessions((prev) => {
           const other = prev.filter((s) => s._source !== src);
@@ -2175,7 +2191,7 @@ function App() {
       }
       if (msg.type === "created") {
         const s = { ...msg.session, _source: src, _key: sessionKey(src, msg.session.sessionId) };
-        setSessions((prev) => sortByPid([...prev, s]));
+        setSessions((prev) => upsertSession(prev, s));
       }
       if (msg.type === "killed") {
         const key = sessionKey(src, msg.sessionId);
@@ -2197,8 +2213,9 @@ function App() {
         setBuffers((prev) => ({ ...prev, [key]: msg.ansi }));
       }
     });
-    client.on("connected", () => setConnected(true));
+    client.on("connected", (src) => rememberSource(src));
     client.on("server_lost", (src) => {
+      forgetSource(src);
       setSessions((prev) => prev.filter((s) => s._source !== src));
       setBuffers((prev) => {
         const next = { ...prev };
@@ -2220,7 +2237,7 @@ function App() {
     const s = currentSession();
     return s ? buffers()[s._key] || "" : "";
   };
-  if (!connected()) {
+  if (sources().length === 0) {
     return /* @__PURE__ */ jsx("box", { style: { padding: 1 }, children: /* @__PURE__ */ jsx("text", { style: { color: DIM2 }, children: "waiting for tui-mcp server..." }) });
   }
   if (fullscreen()) {
@@ -2231,7 +2248,8 @@ function App() {
   }
   return /* @__PURE__ */ jsxs(SplitPane, { sizes: [28, "1fr"], border: "single", borderColor: DIM2, style: { height: "100%" }, children: [
     /* @__PURE__ */ jsxs("box", { style: { flexDirection: "column", height: "100%" }, children: [
-      /* @__PURE__ */ jsx(SessionHeader, { count: sessions().length }),
+      /* @__PURE__ */ jsx(SessionHeader, { count: sessions().length, sources: sources() }),
+      /* @__PURE__ */ jsx(ServerBar, { sources: sources() }),
       /* @__PURE__ */ jsx("box", { style: { flexGrow: 1 }, children: /* @__PURE__ */ jsx(
         List,
         {
@@ -2249,12 +2267,23 @@ function App() {
     ] })
   ] });
 }
-function SessionHeader({ count }) {
+function SessionHeader({ count, sources }) {
   return /* @__PURE__ */ jsxs("box", { style: { flexDirection: "row", paddingX: 1 }, children: [
     /* @__PURE__ */ jsx("text", { style: { color: CYAN, bold: true }, children: "sessions" }),
     /* @__PURE__ */ jsx(Spacer, {}),
-    /* @__PURE__ */ jsx("text", { style: { color: DIM2 }, children: count })
+    /* @__PURE__ */ jsxs("text", { style: { color: DIM2 }, children: [
+      count,
+      " on ",
+      sources.length
+    ] })
   ] });
+}
+function ServerBar({ sources }) {
+  const label = sources.length > 0 ? sources.map(sourceLabel).join(", ") : "none";
+  return /* @__PURE__ */ jsx("box", { style: { flexDirection: "row", paddingX: 1 }, children: /* @__PURE__ */ jsxs("text", { style: { color: DIM2 }, children: [
+    "servers ",
+    label
+  ] }) });
 }
 function PreviewHeader({ session }) {
   if (!session) return /* @__PURE__ */ jsx("text", { style: { color: DIM2, paddingX: 1 }, children: "no sessions" });
@@ -2262,7 +2291,9 @@ function PreviewHeader({ session }) {
     /* @__PURE__ */ jsx("text", { style: { color: CYAN, bold: true }, children: session.command }),
     /* @__PURE__ */ jsx(Spacer, {}),
     /* @__PURE__ */ jsxs("text", { style: { color: DIM2 }, children: [
-      "pid ",
+      "srv ",
+      sourceLabel(session._source),
+      "  pid ",
       session.pid,
       "  ",
       session.cols,
@@ -2277,7 +2308,9 @@ function FullscreenHeader({ session }) {
     /* @__PURE__ */ jsx("text", { style: { color: CYAN, bold: true }, children: session.command }),
     /* @__PURE__ */ jsx(Spacer, {}),
     /* @__PURE__ */ jsxs("text", { style: { color: DIM2 }, children: [
-      "pid ",
+      "srv ",
+      sourceLabel(session._source),
+      "  pid ",
       session.pid,
       "  ",
       session.cols,
@@ -2300,6 +2333,7 @@ function SessionRow({ session, selected, focused }) {
       " "
     ] }),
     /* @__PURE__ */ jsx("text", { style: { color: fg || DIM2 }, children: pidStr }),
+    /* @__PURE__ */ jsx("text", { style: { color: fg || "#777777" }, children: sourceLabel(session._source).padEnd(6) }),
     /* @__PURE__ */ jsx("text", { style: { color: fg || "#aaaaaa" }, children: cmd })
   ] });
 }

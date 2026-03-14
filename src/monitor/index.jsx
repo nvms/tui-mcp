@@ -11,22 +11,42 @@ function sessionKey(source, sessionId) {
   return `${source}:${sessionId}`
 }
 
+function sourceLabel(source) {
+  return (source?.split('/').pop() || '?').replace(/\.sock$/, '')
+}
+
 function sortByPid(list) {
   return [...list].sort((a, b) => a.pid - b.pid)
 }
 
+function upsertSession(list, session) {
+  const next = list.filter(s => s._key !== session._key)
+  next.push(session)
+  return sortByPid(next)
+}
+
 function App() {
   const [sessions, setSessions] = createSignal([])
+  const [sources, setSources] = createSignal([])
   const [selected, setSelected] = createSignal(0)
   const [buffers, setBuffers] = createSignal({})
   const [fullscreen, setFullscreen] = createSignal(false)
-  const [connected, setConnected] = createSignal(false)
+
+  const rememberSource = (src) => {
+    if (!src) return
+    setSources(prev => prev.includes(src) ? prev : [...prev, src].sort())
+  }
+
+  const forgetSource = (src) => {
+    setSources(prev => prev.filter(s => s !== src))
+  }
 
   createEffect(() => {
     const client = connect()
 
     client.on('message', (msg) => {
       const src = msg._source
+      rememberSource(src)
 
       if (msg.type === 'sessions') {
         setSessions(prev => {
@@ -38,7 +58,7 @@ function App() {
 
       if (msg.type === 'created') {
         const s = { ...msg.session, _source: src, _key: sessionKey(src, msg.session.sessionId) }
-        setSessions(prev => sortByPid([...prev, s]))
+        setSessions(prev => upsertSession(prev, s))
       }
 
       if (msg.type === 'killed') {
@@ -64,9 +84,10 @@ function App() {
       }
     })
 
-    client.on('connected', () => setConnected(true))
+    client.on('connected', (src) => rememberSource(src))
 
     client.on('server_lost', (src) => {
+      forgetSource(src)
       setSessions(prev => prev.filter(s => s._source !== src))
       setBuffers(prev => {
         const next = { ...prev }
@@ -92,7 +113,7 @@ function App() {
     return s ? buffers()[s._key] || '' : ''
   }
 
-  if (!connected()) {
+  if (sources().length === 0) {
     return (
       <box style={{ padding: 1 }}>
         <text style={{ color: DIM }}>waiting for tui-mcp server...</text>
@@ -114,7 +135,8 @@ function App() {
   return (
     <SplitPane sizes={[28, '1fr']} border="single" borderColor={DIM} style={{ height: '100%' }}>
       <box style={{ flexDirection: 'column', height: '100%' }}>
-        <SessionHeader count={sessions().length} />
+        <SessionHeader count={sessions().length} sources={sources()} />
+        <ServerBar sources={sources()} />
         <box style={{ flexGrow: 1 }}>
           <List
             items={sessions()}
@@ -137,12 +159,24 @@ function App() {
   )
 }
 
-function SessionHeader({ count }) {
+function SessionHeader({ count, sources }) {
   return (
     <box style={{ flexDirection: 'row', paddingX: 1 }}>
       <text style={{ color: CYAN, bold: true }}>sessions</text>
       <Spacer />
-      <text style={{ color: DIM }}>{count}</text>
+      <text style={{ color: DIM }}>{count} on {sources.length}</text>
+    </box>
+  )
+}
+
+function ServerBar({ sources }) {
+  const label = sources.length > 0
+    ? sources.map(sourceLabel).join(', ')
+    : 'none'
+
+  return (
+    <box style={{ flexDirection: 'row', paddingX: 1 }}>
+      <text style={{ color: DIM }}>servers {label}</text>
     </box>
   )
 }
@@ -154,7 +188,7 @@ function PreviewHeader({ session }) {
     <box style={{ flexDirection: 'row', paddingX: 1 }}>
       <text style={{ color: CYAN, bold: true }}>{session.command}</text>
       <Spacer />
-      <text style={{ color: DIM }}>pid {session.pid}  {session.cols}x{session.rows}</text>
+      <text style={{ color: DIM }}>srv {sourceLabel(session._source)}  pid {session.pid}  {session.cols}x{session.rows}</text>
     </box>
   )
 }
@@ -166,7 +200,7 @@ function FullscreenHeader({ session }) {
     <box style={{ flexDirection: 'row', paddingX: 1 }}>
       <text style={{ color: CYAN, bold: true }}>{session.command}</text>
       <Spacer />
-      <text style={{ color: DIM }}>pid {session.pid}  {session.cols}x{session.rows}  esc: back</text>
+      <text style={{ color: DIM }}>srv {sourceLabel(session._source)}  pid {session.pid}  {session.cols}x{session.rows}  esc: back</text>
     </box>
   )
 }
@@ -187,6 +221,7 @@ function SessionRow({ session, selected, focused }) {
     <box style={{ flexDirection: 'row', paddingX: 1, bg }}>
       <text style={{ color: dotColor }}>{dot} </text>
       <text style={{ color: fg || DIM }}>{pidStr}</text>
+      <text style={{ color: fg || '#777777' }}>{sourceLabel(session._source).padEnd(6)}</text>
       <text style={{ color: fg || '#aaaaaa' }}>{cmd}</text>
     </box>
   )
