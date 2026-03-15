@@ -4,6 +4,12 @@ What [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp
 
 Launch any terminal app in a managed pty, take screenshots, read text, send keystrokes. The app thinks it's running in a real terminal. Works with any TUI framework or no framework at all - vim, htop, bubbletea, textual, ink, inquirer, trend, ncurses, whatever.
 
+<p align="center">
+  <a href="https://glama.ai/mcp/servers/nvms/tui-mcp">
+    <img width="380" height="200" src="https://glama.ai/mcp/servers/nvms/tui-mcp/badge" alt="tui-mcp MCP server" />
+  </a>
+</p>
+
 ## How is this different from a bash tool?
 
 A bash tool runs discrete commands - each invocation is fire-and-forget. The process exits, the output comes back. tui-mcp maintains a **persistent, interactive session**. The pty stays alive between calls. This matters when:
@@ -21,10 +27,6 @@ Some example outputs of the `screenshot` tool:
 ![trend dashboard](assets/dashboard.png)
 ![lore](assets/lore.png)
 ![htop](assets/htop.png)
-
-<a href="https://glama.ai/mcp/servers/nvms/tui-mcp">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/nvms/tui-mcp/badge" alt="tui-mcp MCP server" />
-</a>
 
 ## Setup
 
