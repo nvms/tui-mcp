@@ -7,10 +7,20 @@ import { EventEmitter } from 'events'
 const SOCK_DIR = path.join(os.homedir(), '.tui-mcp')
 const SCAN_MS = 2000
 
+function pidFromSock(file) {
+  const m = file.match(/^(\d+)\.sock$/)
+  return m ? Number(m[1]) : null
+}
+
+function isProcessAlive(pid) {
+  try { process.kill(pid, 0); return true } catch { return false }
+}
+
 export function connect() {
   const emitter = new EventEmitter()
   const connections = new Map()
   let destroyed = false
+  let scanTimer = null
 
   function scanAndConnect() {
     if (destroyed) return
@@ -21,10 +31,17 @@ export function connect() {
     for (const file of files) {
       const sockPath = path.join(SOCK_DIR, file)
       if (connections.has(sockPath)) continue
+
+      const pid = pidFromSock(file)
+      if (pid && !isProcessAlive(pid)) {
+        try { fs.unlinkSync(sockPath) } catch {}
+        continue
+      }
+
       connectOne(sockPath)
     }
 
-    setTimeout(scanAndConnect, SCAN_MS)
+    scanTimer = setTimeout(scanAndConnect, SCAN_MS)
   }
 
   function connectOne(sockPath) {
@@ -46,7 +63,9 @@ export function connect() {
       }
     })
 
-    socket.on('error', () => {})
+    socket.on('error', () => {
+      socket.destroy()
+    })
 
     socket.on('close', () => {
       connections.delete(sockPath)
@@ -62,6 +81,7 @@ export function connect() {
 
   emitter.destroy = () => {
     destroyed = true
+    clearTimeout(scanTimer)
     for (const socket of connections.values()) {
       try { socket.destroy() } catch {}
     }

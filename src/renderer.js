@@ -1,5 +1,13 @@
-import { createCanvas } from 'canvas'
 import { resolveFg, resolveBg, resolveDimColor, DEFAULT_FG, DEFAULT_BG } from './colors.js'
+
+let _createCanvas
+async function getCreateCanvas() {
+  if (!_createCanvas) {
+    const mod = await import('canvas')
+    _createCanvas = mod.createCanvas
+  }
+  return _createCanvas
+}
 
 const CELL_WIDTH = 9
 const CELL_HEIGHT = 18
@@ -7,7 +15,8 @@ const FONT_SIZE = 14
 const FONT_FAMILY = 'monospace'
 const PADDING = 8
 
-export function renderToPng(term) {
+export async function renderToPng(term) {
+  const createCanvas = await getCreateCanvas()
   const cols = term.cols
   const rows = term.rows
   const width = cols * CELL_WIDTH + PADDING * 2

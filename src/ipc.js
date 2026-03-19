@@ -38,8 +38,22 @@ session.events.on('buffer', (sessionId) => {
   } catch {}
 })
 
+function cleanStaleSockets() {
+  let files = []
+  try { files = fs.readdirSync(SOCK_DIR).filter(f => f.endsWith('.sock')) } catch { return }
+  for (const file of files) {
+    const m = file.match(/^(\d+)\.sock$/)
+    if (!m) continue
+    const pid = Number(m[1])
+    try { process.kill(pid, 0) } catch {
+      try { fs.unlinkSync(path.join(SOCK_DIR, file)) } catch {}
+    }
+  }
+}
+
 export function startIpc() {
   fs.mkdirSync(SOCK_DIR, { recursive: true })
+  cleanStaleSockets()
 
   const sockPath = path.join(SOCK_DIR, `${process.pid}.sock`)
   try { fs.unlinkSync(sockPath) } catch {}

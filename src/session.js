@@ -12,10 +12,19 @@ let nextId = 1
 const sessions = new Map()
 const INTERACTIVE_SHELLS = new Set(['bash', 'sh', 'zsh', 'fish', 'ksh'])
 
-function killAll() {
-  for (const s of sessions.values()) {
+function dispose(s) {
+  if (s._bufferTimer) {
+    clearTimeout(s._bufferTimer)
+    s._bufferTimer = null
+  }
+  try { s.pty.destroy() } catch {
     try { s.pty.kill() } catch {}
   }
+  try { s.term.dispose() } catch {}
+}
+
+function killAll() {
+  for (const s of sessions.values()) dispose(s)
   sessions.clear()
 }
 
@@ -24,14 +33,26 @@ process.on('SIGINT', killAll)
 process.on('SIGHUP', killAll)
 process.on('exit', killAll)
 
+const REAP_DELAY = 5000
+
+function shellSplit(command) {
+  if (typeof command !== 'string') return [...command]
+
+  const needsShell = /["'\\|&;<>()$`{}\[\]*?~!]/.test(command)
+  if (needsShell) return ['sh', '-c', command]
+
+  const parts = command.split(/\s+/).filter(Boolean)
+  return parts.length ? parts : ['sh', '-c', command]
+}
+
 export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
-  const args = typeof command === 'string' ? command.split(/\s+/) : [...command]
+  const args = shellSplit(command)
   const cmd = args.shift()
   if (cmd && args.length === 0 && INTERACTIVE_SHELLS.has(cmd)) args.push('-i')
 
   const term = new Terminal({ cols, rows, scrollback: 1000, allowProposedApi: true })
 
-  const pty = spawn(cmd, args, {
+  const p = spawn(cmd, args, {
     name: 'xterm-256color',
     cols,
     rows,
@@ -40,11 +61,12 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
   })
 
   const id = String(nextId++)
+  const created = Date.now()
   const session = {
     id,
     command,
-    pid: pty.pid,
-    pty,
+    pid: p.pid,
+    pty: p,
     term,
     cols,
     rows,
@@ -53,7 +75,7 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
     _bufferTimer: null,
   }
 
-  pty.onData((data) => {
+  p.onData((data) => {
     term.write(data)
     if (!session._bufferTimer) {
       session._bufferTimer = setTimeout(() => {
@@ -63,7 +85,9 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
     }
   })
 
-  pty.onExit(({ exitCode }) => {
+  p.onExit(({ exitCode, signal }) => {
+    const age = Date.now() - created
+    console.error(`[tui-mcp] session ${id} exited: code=${exitCode} signal=${signal} age=${age}ms`)
     session.exited = true
     session.exitCode = exitCode
     if (session._bufferTimer) {
@@ -71,11 +95,34 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
       session._bufferTimer = null
     }
     events.emit('exited', session.id, exitCode)
+
+    setTimeout(() => {
+      if (sessions.has(id) && session.exited) {
+        dispose(session)
+        sessions.delete(id)
+        events.emit('reaped', id)
+      }
+    }, REAP_DELAY)
   })
 
   sessions.set(id, session)
   events.emit('created', sessionInfo(session))
-  return { sessionId: id, pid: pty.pid }
+
+  return new Promise((resolve) => {
+    const settle = () => {
+      if (session.exited) {
+        resolve({
+          sessionId: id,
+          pid: p.pid,
+          exited: true,
+          exitCode: session.exitCode,
+        })
+      } else {
+        resolve({ sessionId: id, pid: p.pid })
+      }
+    }
+    setTimeout(settle, 100)
+  })
 }
 
 function get(sessionId) {
@@ -86,7 +133,7 @@ function get(sessionId) {
 
 function getRunning(sessionId) {
   const s = get(sessionId)
-  if (s.exited) throw new Error(`session "${sessionId}" has already exited`)
+  if (s.exited) throw new Error(`session "${sessionId}" has already exited (code=${s.exitCode})`)
   return s
 }
 
@@ -108,7 +155,7 @@ export function listSessions() {
 
 export function kill(sessionId) {
   const s = get(sessionId)
-  if (!s.exited) s.pty.kill()
+  dispose(s)
   sessions.delete(sessionId)
   events.emit('killed', sessionId)
 }
@@ -121,7 +168,7 @@ export function resize(sessionId, cols, rows) {
   s.rows = rows
 }
 
-export function screenshot(sessionId) {
+export async function screenshot(sessionId) {
   const s = get(sessionId)
   return renderToPng(s.term)
 }

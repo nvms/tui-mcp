@@ -33,8 +33,9 @@ server.registerTool('launch', {
     cwd: z.string().optional().describe('Working directory for the process'),
   },
 }, async ({ command, cols, rows, cwd }) => {
-  const result = session.launch(command, { cols, rows, cwd })
-  return { content: [{ type: 'text', text: JSON.stringify(result) }] }
+  const result = await session.launch(command, { cols, rows, cwd })
+  const isError = result.exited === true
+  return { content: [{ type: 'text', text: JSON.stringify(result) }], isError }
 })
 
 server.registerTool('list_sessions', {
@@ -76,7 +77,7 @@ server.registerTool('screenshot', {
     sessionId: z.string().describe('Session ID'),
   },
 }, async ({ sessionId }) => {
-  const png = session.screenshot(sessionId)
+  const png = await session.screenshot(sessionId)
   return {
     content: [{
       type: 'image',

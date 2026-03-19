@@ -2087,10 +2087,23 @@ import os from "os";
 import { EventEmitter } from "events";
 var SOCK_DIR = path.join(os.homedir(), ".tui-mcp");
 var SCAN_MS = 2e3;
+function pidFromSock(file) {
+  const m = file.match(/^(\d+)\.sock$/);
+  return m ? Number(m[1]) : null;
+}
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 function connect() {
   const emitter = new EventEmitter();
   const connections = /* @__PURE__ */ new Map();
   let destroyed = false;
+  let scanTimer = null;
   function scanAndConnect() {
     if (destroyed) return;
     let files = [];
@@ -2101,9 +2114,17 @@ function connect() {
     for (const file of files) {
       const sockPath = path.join(SOCK_DIR, file);
       if (connections.has(sockPath)) continue;
+      const pid = pidFromSock(file);
+      if (pid && !isProcessAlive(pid)) {
+        try {
+          fs.unlinkSync(sockPath);
+        } catch {
+        }
+        continue;
+      }
       connectOne(sockPath);
     }
-    setTimeout(scanAndConnect, SCAN_MS);
+    scanTimer = setTimeout(scanAndConnect, SCAN_MS);
   }
   function connectOne(sockPath) {
     let buffer = "";
@@ -2124,6 +2145,7 @@ function connect() {
       }
     });
     socket.on("error", () => {
+      socket.destroy();
     });
     socket.on("close", () => {
       connections.delete(sockPath);
@@ -2136,6 +2158,7 @@ function connect() {
   scanAndConnect();
   emitter.destroy = () => {
     destroyed = true;
+    clearTimeout(scanTimer);
     for (const socket of connections.values()) {
       try {
         socket.destroy();
