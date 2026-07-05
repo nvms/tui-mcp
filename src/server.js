@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 if (process.argv[2] === 'monitor') {
-  const { execSync } = await import('child_process')
+  const { spawnSync } = await import('child_process')
   const { dirname, join } = await import('path')
   const { fileURLToPath } = await import('url')
   const __dirname = dirname(fileURLToPath(import.meta.url))
   const app = join(__dirname, '..', 'dist', 'monitor.js')
-  try { execSync(`node ${app}`, { stdio: 'inherit' }) } catch {}
+  spawnSync(process.execPath, [app], { stdio: 'inherit' })
   process.exit(0)
 }
 
@@ -19,7 +19,7 @@ import { startIpc } from './ipc.js'
 startIpc()
 
 const server = new McpServer(
-  { name: 'tui-mcp', version: '1.0.0' },
+  { name: 'tui-mcp', version: '1.1.0' },
   { capabilities: { logging: {} } }
 )
 
@@ -31,19 +31,31 @@ server.registerTool('launch', {
     cols: z.number().optional().describe('Terminal width in columns (default: 80)'),
     rows: z.number().optional().describe('Terminal height in rows (default: 24)'),
     cwd: z.string().optional().describe('Working directory for the process'),
+    env: z.record(z.string()).optional().describe('Extra environment variables (merged over the server environment)'),
   },
-}, async ({ command, cols, rows, cwd }) => {
-  const result = await session.launch(command, { cols, rows, cwd })
+}, async ({ command, cols, rows, cwd, env }) => {
+  const result = await session.launch(command, { cols, rows, cwd, env })
   const isError = result.exited === true
   return { content: [{ type: 'text', text: JSON.stringify(result) }], isError }
 })
 
 server.registerTool('list_sessions', {
   title: 'List Sessions',
-  description: 'List all active TUI sessions with their IDs, commands, and dimensions.',
+  description: 'List TUI sessions with their IDs, commands, and dimensions. Includes recently exited sessions (with exitCode) - their final buffer stays readable for a few minutes.',
 }, async () => {
   const list = session.listSessions()
   return { content: [{ type: 'text', text: JSON.stringify(list, null, 2) }] }
+})
+
+server.registerTool('status', {
+  title: 'Session Status',
+  description: 'Get the status of one session: command, pid, dimensions, and whether it exited (with exit code).',
+  inputSchema: {
+    sessionId: z.string().describe('Session ID'),
+  },
+}, async ({ sessionId }) => {
+  const info = session.status(sessionId)
+  return { content: [{ type: 'text', text: JSON.stringify(info) }] }
 })
 
 server.registerTool('kill', {
@@ -98,6 +110,31 @@ server.registerTool('snapshot', {
   return { content: [{ type: 'text', text }] }
 })
 
+server.registerTool('scrollback', {
+  title: 'Scrollback',
+  description: 'Read the terminal buffer as plain text including scrollback history, oldest line first. Use this to see output that has scrolled off screen; snapshot only shows the current viewport.',
+  inputSchema: {
+    sessionId: z.string().describe('Session ID'),
+    lines: z.number().optional().describe('Only return the last N lines (default: entire buffer)'),
+  },
+}, async ({ sessionId, lines }) => {
+  const text = session.getScrollback(sessionId, lines)
+  return { content: [{ type: 'text', text }] }
+})
+
+server.registerTool('output', {
+  title: 'Raw Output',
+  description: 'Read the raw byte stream the app wrote to the pty, including escape sequences - useful for debugging exactly what a program emits. The first 64KB (head) and most recent 256KB (tail) are retained.',
+  inputSchema: {
+    sessionId: z.string().describe('Session ID'),
+    part: z.enum(['head', 'tail']).optional().describe('Read from the start or the end of the stream (default: tail)'),
+    limit: z.number().optional().describe('Max characters to return (default: 10000)'),
+  },
+}, async ({ sessionId, part, limit }) => {
+  const result = session.getRawOutput(sessionId, { part, limit })
+  return { content: [{ type: 'text', text: JSON.stringify(result) }] }
+})
+
 server.registerTool('read_region', {
   title: 'Read Region',
   description: 'Read a rectangular region of the terminal buffer as text.',
@@ -126,7 +163,7 @@ server.registerTool('cursor', {
 
 server.registerTool('send_keys', {
   title: 'Send Keys',
-  description: 'Send keystrokes to the TUI app. Use this for special keys and shortcuts, not for typing text (use send_text for that). Accepts a single key descriptor string or an array of key descriptors to send in sequence. Supports named keys (Enter, Tab, Escape, Up, Down, Left, Right, Backspace, Delete, Home, End, PageUp, PageDown, F1-F12, Space) and modifiers (Ctrl+, Alt+, Shift+). Examples: "Enter", "Ctrl+C", ["Down", "Down", "Down", "Enter"], ["Escape", ":wq", "Enter"].',
+  description: 'Send keystrokes to the TUI app. Use this for special keys and shortcuts, not for typing text (use send_text for that). Accepts a single key descriptor string or an array of key descriptors to send in sequence. Supports named keys (Enter, Tab, Escape, Up, Down, Left, Right, Backspace, Delete, Home, End, PageUp, PageDown, F1-F12, Space; case-insensitive) and modifiers (Ctrl+, Alt+, Shift+), including modified navigation keys like Ctrl+Up or Alt+Left. Examples: "Enter", "Ctrl+C", ["Down", "Down", "Down", "Enter"], ["Escape", ":wq", "Enter"].',
   inputSchema: {
     sessionId: z.string().describe('Session ID'),
     keys: z.union([z.string(), z.array(z.string())]).describe('Key descriptor or array of key descriptors (e.g. "Enter", "Ctrl+C", ["Down", "Down", "Enter"])'),
@@ -190,8 +227,25 @@ server.registerTool('wait_for_idle', {
     debounce: z.number().optional().describe('How long the buffer must be stable before considered idle, in ms (default: 300)'),
   },
 }, async ({ sessionId, timeout, debounce }) => {
-  await session.waitForIdle(sessionId, timeout, debounce)
-  return { content: [{ type: 'text', text: 'idle' }] }
+  const { idle } = await session.waitForIdle(sessionId, timeout, debounce)
+  const text = idle ? 'idle' : 'timeout: buffer was still changing when the wait expired'
+  return { content: [{ type: 'text', text }], isError: !idle }
+})
+
+server.registerTool('wait_for_exit', {
+  title: 'Wait For Exit',
+  description: 'Wait until the session process exits and return its exit code. Useful after launching a finite command (build, test run, script).',
+  inputSchema: {
+    sessionId: z.string().describe('Session ID'),
+    timeout: z.number().optional().describe('Timeout in milliseconds (default: 30000)'),
+  },
+}, async ({ sessionId, timeout }) => {
+  try {
+    const { exitCode } = await session.waitForExit(sessionId, timeout)
+    return { content: [{ type: 'text', text: JSON.stringify({ exited: true, exitCode }) }] }
+  } catch (e) {
+    return { content: [{ type: 'text', text: e.message }], isError: true }
+  }
 })
 
 const transport = new StdioServerTransport()

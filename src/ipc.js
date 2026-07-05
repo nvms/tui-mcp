@@ -31,6 +31,10 @@ session.events.on('exited', (sessionId, exitCode) => {
   broadcast({ type: 'exited', sessionId, exitCode })
 })
 
+session.events.on('reaped', (sessionId) => {
+  broadcast({ type: 'killed', sessionId })
+})
+
 session.events.on('buffer', (sessionId) => {
   try {
     const ansi = session.ansiSnapshot(sessionId)
@@ -81,13 +85,9 @@ export function startIpc() {
 
   server.listen(sockPath)
 
-  const cleanup = () => {
+  process.on('exit', () => {
     try { fs.unlinkSync(sockPath) } catch {}
-  }
-
-  process.on('exit', cleanup)
-  process.on('SIGTERM', cleanup)
-  process.on('SIGINT', cleanup)
+  })
 
   return server
 }

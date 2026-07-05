@@ -2,7 +2,7 @@ import pty from 'node-pty'
 const { spawn } = pty
 import xterm from '@xterm/headless'
 const { Terminal } = xterm
-import { renderToPng, renderToText, renderToAnsi, readRegion } from './renderer.js'
+import { renderToPng, renderToText, renderToAnsi, renderScrollback, readRegion } from './renderer.js'
 import { resolveKeys, buildMouseSequence } from './keys.js'
 import { EventEmitter } from 'events'
 
@@ -12,14 +12,22 @@ let nextId = 1
 const sessions = new Map()
 const INTERACTIVE_SHELLS = new Set(['bash', 'sh', 'zsh', 'fish', 'ksh'])
 
+function disposePty(s) {
+  try { s.pty.destroy() } catch {
+    try { s.pty.kill() } catch {}
+  }
+}
+
 function dispose(s) {
   if (s._bufferTimer) {
     clearTimeout(s._bufferTimer)
     s._bufferTimer = null
   }
-  try { s.pty.destroy() } catch {
-    try { s.pty.kill() } catch {}
+  if (s._reapTimer) {
+    clearTimeout(s._reapTimer)
+    s._reapTimer = null
   }
+  disposePty(s)
   try { s.term.dispose() } catch {}
 }
 
@@ -28,12 +36,14 @@ function killAll() {
   sessions.clear()
 }
 
-process.on('SIGTERM', killAll)
-process.on('SIGINT', killAll)
-process.on('SIGHUP', killAll)
+process.on('SIGTERM', () => { killAll(); process.exit(143) })
+process.on('SIGINT', () => { killAll(); process.exit(130) })
+process.on('SIGHUP', () => { killAll(); process.exit(129) })
 process.on('exit', killAll)
 
-const REAP_DELAY = 5000
+const REAP_DELAY = 5 * 60 * 1000
+const RAW_HEAD_CAP = 64 * 1024
+const RAW_TAIL_CAP = 256 * 1024
 
 function shellSplit(command) {
   if (typeof command !== 'string') return [...command]
@@ -72,11 +82,25 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
     rows,
     exited: false,
     exitCode: null,
+    rawHead: '',
+    rawTail: '',
+    rawBytes: 0,
     _bufferTimer: null,
+    _reapTimer: null,
   }
 
   p.onData((data) => {
     term.write(data)
+
+    session.rawBytes += data.length
+    if (session.rawHead.length < RAW_HEAD_CAP) {
+      session.rawHead += data.slice(0, RAW_HEAD_CAP - session.rawHead.length)
+    }
+    session.rawTail += data
+    if (session.rawTail.length > RAW_TAIL_CAP) {
+      session.rawTail = session.rawTail.slice(session.rawTail.length - RAW_TAIL_CAP)
+    }
+
     if (!session._bufferTimer) {
       session._bufferTimer = setTimeout(() => {
         session._bufferTimer = null
@@ -94,15 +118,22 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
       clearTimeout(session._bufferTimer)
       session._bufferTimer = null
     }
+    disposePty(session)
     events.emit('exited', session.id, exitCode)
 
+    // xterm parses writes async, so give the final chunk a beat before snapshotting
     setTimeout(() => {
+      if (sessions.has(id)) events.emit('buffer', session.id)
+    }, 200).unref?.()
+
+    session._reapTimer = setTimeout(() => {
       if (sessions.has(id) && session.exited) {
         dispose(session)
         sessions.delete(id)
         events.emit('reaped', id)
       }
     }, REAP_DELAY)
+    session._reapTimer.unref?.()
   })
 
   sessions.set(id, session)
@@ -150,7 +181,11 @@ function sessionInfo(s) {
 }
 
 export function listSessions() {
-  return [...sessions.values()].filter(s => !s.exited).map(sessionInfo)
+  return [...sessions.values()].map(sessionInfo)
+}
+
+export function status(sessionId) {
+  return sessionInfo(get(sessionId))
 }
 
 export function kill(sessionId) {
@@ -186,6 +221,24 @@ export function ansiSnapshot(sessionId) {
 export function getRegion(sessionId, row, col, width, height) {
   const s = get(sessionId)
   return readRegion(s.term, row, col, width, height)
+}
+
+export function getScrollback(sessionId, lines) {
+  const s = get(sessionId)
+  return renderScrollback(s.term, lines)
+}
+
+export function getRawOutput(sessionId, { part = 'tail', limit = 10000 } = {}) {
+  const s = get(sessionId)
+  const source = part === 'head' ? s.rawHead : s.rawTail
+  const text = part === 'head' ? source.slice(0, limit) : source.slice(-limit)
+  return {
+    part,
+    text,
+    totalBytes: s.rawBytes,
+    headCapped: s.rawBytes > s.rawHead.length,
+    tailCapped: s.rawBytes > s.rawTail.length,
+  }
 }
 
 export function getCursor(sessionId) {
@@ -264,13 +317,35 @@ export function waitForIdle(sessionId, timeout = 3000, debounce = 300) {
       } else if (Date.now() - lastChange >= debounce) {
         clearInterval(interval)
         clearTimeout(timer)
-        resolve(true)
+        resolve({ idle: true })
       }
     }, 50)
 
     const timer = setTimeout(() => {
       clearInterval(interval)
-      resolve(true)
+      resolve({ idle: false })
     }, timeout)
+  })
+}
+
+export function waitForExit(sessionId, timeout = 30000) {
+  const s = get(sessionId)
+  if (s.exited) return Promise.resolve({ exitCode: s.exitCode })
+
+  return new Promise((resolve, reject) => {
+    const onExited = (id, exitCode) => {
+      if (id !== sessionId) return
+      cleanup()
+      resolve({ exitCode })
+    }
+    const timer = setTimeout(() => {
+      cleanup()
+      reject(new Error(`session "${sessionId}" still running after ${timeout}ms`))
+    }, timeout)
+    const cleanup = () => {
+      clearTimeout(timer)
+      events.off('exited', onExited)
+    }
+    events.on('exited', onExited)
   })
 }
