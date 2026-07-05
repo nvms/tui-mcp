@@ -40,17 +40,21 @@ claude mcp add --scope user tui-mcp -- npx tui-mcp
 |------|-------------|
 | **launch** | Spawn a TUI app in a managed pty |
 | **kill** | Terminate a session |
-| **list_sessions** | List active sessions |
+| **list_sessions** | List sessions, including recently exited ones |
+| **status** | Get one session's state and exit code |
 | **resize** | Resize the terminal |
 | **screenshot** | Capture terminal as PNG |
 | **snapshot** | Capture terminal as plain text |
+| **scrollback** | Read the buffer including scrolled-off history |
+| **output** | Read the raw pty byte stream (escape sequences included) |
 | **read_region** | Read a rectangular area of the buffer |
 | **cursor** | Get cursor position |
-| **send_keys** | Send a keystroke or combo (`Enter`, `Ctrl+C`, `Up`, `q`) |
+| **send_keys** | Send a keystroke or combo (`Enter`, `Ctrl+C`, `Ctrl+Up`, `q`) |
 | **send_text** | Type a string of characters |
 | **send_mouse** | Send mouse events |
 | **wait_for_text** | Wait for a regex pattern to appear |
 | **wait_for_idle** | Wait until the terminal stops changing |
+| **wait_for_exit** | Wait for the process to exit and get its exit code |
 
 ## Interesting use cases
 
