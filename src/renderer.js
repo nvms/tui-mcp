@@ -31,7 +31,7 @@ export async function renderToPng(term) {
   const nullCell = buf.getNullCell()
 
   for (let y = 0; y < rows; y++) {
-    const line = buf.getLine(y)
+    const line = buf.getLine(buf.baseY + y)
     if (!line) continue
 
     for (let x = 0; x < cols; x++) {
@@ -94,7 +94,7 @@ export function renderToText(term) {
   const lines = []
 
   for (let y = 0; y < term.rows; y++) {
-    const line = buf.getLine(y)
+    const line = buf.getLine(buf.baseY + y)
     if (!line) {
       lines.push('')
       continue
@@ -103,6 +103,20 @@ export function renderToText(term) {
   }
 
   return lines.join('\n')
+}
+
+export function renderScrollback(term, lines) {
+  const buf = term.buffer.active
+  const total = buf.baseY + term.rows
+  const start = lines ? Math.max(0, total - lines) : 0
+  const out = []
+
+  for (let y = start; y < total; y++) {
+    const line = buf.getLine(y)
+    out.push(line ? line.translateToString(true) : '')
+  }
+
+  return out.join('\n')
 }
 
 function fgSgr(cell) {
@@ -129,7 +143,7 @@ export function renderToAnsi(term) {
   const lines = []
 
   for (let y = 0; y < term.rows; y++) {
-    const line = buf.getLine(y)
+    const line = buf.getLine(buf.baseY + y)
     if (!line) { lines.push(''); continue }
 
     let out = ''
@@ -175,7 +189,7 @@ export function readRegion(term, row, col, width, height) {
   const lines = []
 
   for (let y = row; y < row + height && y < term.rows; y++) {
-    const line = buf.getLine(y)
+    const line = buf.getLine(buf.baseY + y)
     if (!line) {
       lines.push('')
       continue
