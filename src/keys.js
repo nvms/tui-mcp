@@ -5,16 +5,17 @@ const KEY_MAP = {
   'Escape': '\x1b',
   'Esc': '\x1b',
   'Backspace': '\x7f',
-  'Delete': '\x1b[3~',
+  'Space': ' ',
   'Up': '\x1b[A',
   'Down': '\x1b[B',
   'Right': '\x1b[C',
   'Left': '\x1b[D',
   'Home': '\x1b[H',
   'End': '\x1b[F',
+  'Insert': '\x1b[2~',
+  'Delete': '\x1b[3~',
   'PageUp': '\x1b[5~',
   'PageDown': '\x1b[6~',
-  'Insert': '\x1b[2~',
   'F1': '\x1bOP',
   'F2': '\x1bOQ',
   'F3': '\x1bOR',
@@ -27,19 +28,67 @@ const KEY_MAP = {
   'F10': '\x1b[21~',
   'F11': '\x1b[23~',
   'F12': '\x1b[24~',
-  'Space': ' ',
 }
 
-const CTRL_MAP = {}
+const CSI_LETTER = {
+  'Up': 'A',
+  'Down': 'B',
+  'Right': 'C',
+  'Left': 'D',
+  'Home': 'H',
+  'End': 'F',
+  'F1': 'P',
+  'F2': 'Q',
+  'F3': 'R',
+  'F4': 'S',
+}
+
+const CSI_TILDE = {
+  'Insert': 2,
+  'Delete': 3,
+  'PageUp': 5,
+  'PageDown': 6,
+  'F5': 15,
+  'F6': 17,
+  'F7': 18,
+  'F8': 19,
+  'F9': 20,
+  'F10': 21,
+  'F11': 23,
+  'F12': 24,
+}
+
+const CANONICAL = {}
+for (const name of Object.keys(KEY_MAP)) CANONICAL[name.toLowerCase()] = name
+
+const CTRL_MAP = {
+  ' ': '\x00',
+  '@': '\x00',
+  '[': '\x1b',
+  '\\': '\x1c',
+  ']': '\x1d',
+  '^': '\x1e',
+  '_': '\x1f',
+  '?': '\x7f',
+}
 for (let i = 0; i < 26; i++) {
-  const letter = String.fromCharCode(97 + i)
-  CTRL_MAP[letter] = String.fromCharCode(i + 1)
+  CTRL_MAP[String.fromCharCode(97 + i)] = String.fromCharCode(i + 1)
+}
+
+function splitDescriptor(descriptor) {
+  const parts = descriptor.split('+')
+  let key = parts.pop()
+  if (key === '' && descriptor.endsWith('+')) {
+    key = '+'
+    if (parts[parts.length - 1] === '') parts.pop()
+  }
+  return { parts, key }
 }
 
 export function resolveKeys(descriptor) {
-  const parts = descriptor.split('+')
+  const { parts, key: rawKey } = splitDescriptor(descriptor)
   const modifiers = { ctrl: false, alt: false, shift: false }
-  let key = parts.pop()
+  let key = rawKey
 
   for (const mod of parts) {
     const m = mod.toLowerCase()
@@ -48,24 +97,26 @@ export function resolveKeys(descriptor) {
     else if (m === 'shift') modifiers.shift = true
   }
 
-  if (modifiers.ctrl && key.length === 1) {
-    const seq = CTRL_MAP[key.toLowerCase()]
-    if (seq) return modifiers.alt ? `\x1b${seq}` : seq
+  const canonical = key.length > 1 ? (CANONICAL[key.toLowerCase()] ?? key) : key
+  const modCode = 1 + (modifiers.shift ? 1 : 0) + (modifiers.alt ? 2 : 0) + (modifiers.ctrl ? 4 : 0)
+
+  if (modCode > 1) {
+    if (canonical === 'Tab' && modifiers.shift && !modifiers.ctrl && !modifiers.alt) return '\x1b[Z'
+    if (CSI_LETTER[canonical]) return `\x1b[1;${modCode}${CSI_LETTER[canonical]}`
+    if (CSI_TILDE[canonical]) return `\x1b[${CSI_TILDE[canonical]};${modCode}~`
   }
 
-  if (modifiers.shift) {
-    const shiftArrows = {
-      'Up': '\x1b[1;2A',
-      'Down': '\x1b[1;2B',
-      'Right': '\x1b[1;2C',
-      'Left': '\x1b[1;2D',
-      'Tab': '\x1b[Z',
+  if (modifiers.ctrl) {
+    const base = canonical === 'Space' ? ' ' : key
+    if (base.length === 1) {
+      const seq = CTRL_MAP[base.toLowerCase()]
+      if (seq) return modifiers.alt ? `\x1b${seq}` : seq
     }
-    if (shiftArrows[key]) return shiftArrows[key]
-    if (key.length === 1) key = key.toUpperCase()
   }
 
-  let seq = KEY_MAP[key] ?? key
+  if (modifiers.shift && key.length === 1) key = key.toUpperCase()
+
+  let seq = KEY_MAP[canonical] ?? key
 
   if (modifiers.alt) seq = `\x1b${seq}`
 
