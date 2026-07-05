@@ -1,6 +1,6 @@
 {
   "name": "tui-mcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "main": "src/server.js",
   "bin": {
@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "start": "node src/server.js",
+    "test": "node --test 'test/*.test.js'",
     "build": "node build.js",
     "prepublishOnly": "npm run build",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null; true"
