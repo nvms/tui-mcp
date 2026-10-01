@@ -4,6 +4,7 @@ import xterm from '@xterm/headless'
 const { Terminal } = xterm
 import { renderToPng, renderToText, renderToAnsi, renderScrollback, readRegion } from './renderer.js'
 import { resolveKeys, buildMouseSequence } from './keys.js'
+import { trackKittyKeyboard } from './kitty.js'
 import { EventEmitter } from 'events'
 import { createRequire } from 'module'
 import fs from 'fs'
@@ -84,6 +85,9 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
 
   const term = new Terminal({ cols, rows, scrollback: 1000, allowProposedApi: true })
 
+  // Replies to the app's terminal queries go straight back to its pty.
+  const kitty = trackKittyKeyboard(term, (data) => { try { p.write(data) } catch {} })
+
   const p = spawn(cmd, args, {
     name: 'xterm-256color',
     cols,
@@ -101,6 +105,7 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
     pid: p.pid,
     pty: p,
     term,
+    kitty,
     cols,
     rows,
     exited: false,
@@ -273,7 +278,7 @@ export function getCursor(sessionId) {
 
 export function sendKeys(sessionId, keys) {
   const s = getRunning(sessionId)
-  const seq = resolveKeys(keys)
+  const seq = resolveKeys(keys, { kittyFlags: s.kitty.flags() })
   s.pty.write(seq)
 }
 

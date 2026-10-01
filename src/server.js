@@ -166,7 +166,7 @@ server.registerTool('cursor', {
 
 server.registerTool('send_keys', {
   title: 'Send Keys',
-  description: 'Send keystrokes to the TUI app. Use this for special keys and shortcuts, not for typing text (use send_text for that). Accepts a single key descriptor string or an array of key descriptors to send in sequence. Supports named keys (Enter, Tab, Escape, Up, Down, Left, Right, Backspace, Delete, Home, End, PageUp, PageDown, F1-F12, Space; case-insensitive) and modifiers (Ctrl+, Alt+, Shift+), including modified navigation keys like Ctrl+Up or Alt+Left. Examples: "Enter", "Ctrl+C", ["Down", "Down", "Down", "Enter"], ["Escape", ":wq", "Enter"].',
+  description: 'Send keystrokes to the TUI app. Use this for special keys and shortcuts, not for typing text (use send_text for that). Accepts a single key descriptor string or an array of key descriptors to send in sequence. Supports named keys (Enter, Tab, Escape, Up, Down, Left, Right, Backspace, Delete, Home, End, PageUp, PageDown, F1-F12, Space; case-insensitive) and modifiers (Ctrl+, Alt+, Shift+), including modified navigation keys like Ctrl+Up or Alt+Left, and NumpadEnter. When the app has enabled the kitty keyboard protocol (Ink and other modern TUIs do), keys are encoded the way a kitty-compatible terminal sends them, so shortcuts like Ctrl+Space reach the app. Examples: "Enter", "Ctrl+C", ["Down", "Down", "Down", "Enter"], ["Escape", ":wq", "Enter"].',
   inputSchema: {
     sessionId: z.string().describe('Session ID'),
     keys: z.union([z.string(), z.array(z.string())]).describe('Key descriptor or array of key descriptors (e.g. "Enter", "Ctrl+C", ["Down", "Down", "Enter"])'),

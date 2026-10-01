@@ -69,3 +69,32 @@ test('mouse sequences use SGR encoding', () => {
   assert.equal(buildMouseSequence('release', 4, 9, 'right'), '\x1b[<2;5;10m')
   assert.equal(buildMouseSequence('scroll', 0, 0, 'up'), '\x1b[<64;1;1M')
 })
+
+test('kitty keyboard protocol: ambiguous keys use CSI u when the app enabled it', () => {
+  const kitty = { kittyFlags: 1 }
+  assert.equal(resolveKeys('Ctrl+Space', kitty), '\x1b[32;5u')
+  assert.equal(resolveKeys('Ctrl+C', kitty), '\x1b[99;5u')
+  assert.equal(resolveKeys('Ctrl+Shift+a', kitty), '\x1b[97;6u')
+  assert.equal(resolveKeys('Alt+x', kitty), '\x1b[120;3u')
+  assert.equal(resolveKeys('Escape', kitty), '\x1b[27u')
+  assert.equal(resolveKeys('Shift+Enter', kitty), '\x1b[13;2u')
+  assert.equal(resolveKeys('Shift+Tab', kitty), '\x1b[9;2u')
+  assert.equal(resolveKeys('NumpadEnter', kitty), '\x1b[57414u')
+})
+
+test('kitty keyboard protocol: unambiguous keys keep their legacy bytes', () => {
+  const kitty = { kittyFlags: 1 }
+  assert.equal(resolveKeys('Enter', kitty), '\r')
+  assert.equal(resolveKeys('Tab', kitty), '\t')
+  assert.equal(resolveKeys('Backspace', kitty), '\x7f')
+  assert.equal(resolveKeys('Up', kitty), '\x1b[A')
+  assert.equal(resolveKeys('Ctrl+Up', kitty), '\x1b[1;5A')
+  assert.equal(resolveKeys('Shift+a', kitty), 'A')
+  assert.equal(resolveKeys('q', kitty), 'q')
+})
+
+test('without the protocol, keys are unchanged', () => {
+  assert.equal(resolveKeys('Ctrl+Space'), '\x00')
+  assert.equal(resolveKeys('Escape', { kittyFlags: 0 }), '\x1b')
+  assert.equal(resolveKeys('NumpadEnter'), '\r')
+})
