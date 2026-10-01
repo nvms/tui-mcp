@@ -60,6 +60,8 @@ const CSI_TILDE = {
 
 const CANONICAL = {}
 for (const name of Object.keys(KEY_MAP)) CANONICAL[name.toLowerCase()] = name
+CANONICAL['numpadenter'] = 'NumpadEnter'
+CANONICAL['kpenter'] = 'NumpadEnter'
 
 const CTRL_MAP = {
   ' ': '\x00',
@@ -85,7 +87,31 @@ function splitDescriptor(descriptor) {
   return { parts, key }
 }
 
-export function resolveKeys(descriptor) {
+// Kitty keyboard protocol (https://sw.kovidgoyal.net/kitty/keyboard-protocol/).
+// Apps that turn on "disambiguate escape codes" (flag 1) - Ink and other
+// modern TUIs - read keys whose legacy bytes are ambiguous as CSI <code>;<mods> u:
+// Ctrl+Space is NUL, Ctrl+I is Tab and Esc starts every escape sequence, so
+// in legacy form the app cannot tell them apart.
+const KITTY_DISAMBIGUATE = 1
+const KITTY_CODE = { 'Escape': 27, 'Enter': 13, 'Tab': 9, 'Backspace': 127, 'Space': 32 }
+const KITTY_NUMPAD_ENTER = 57414
+
+function resolveKitty(canonical, key, modifiers, modCode) {
+  if (canonical === 'NumpadEnter') return modCode > 1 ? `\x1b[${KITTY_NUMPAD_ENTER};${modCode}u` : `\x1b[${KITTY_NUMPAD_ENTER}u`
+  if (canonical === 'Escape' && modCode === 1) return '\x1b[27u'
+  if (modCode === 1) return null
+  if (KITTY_CODE[canonical] !== undefined) return `\x1b[${KITTY_CODE[canonical]};${modCode}u`
+  // A character with Ctrl or Alt: the code is the unshifted key; Shift alone stays text.
+  if (key.length === 1 && (modifiers.ctrl || modifiers.alt)) return `\x1b[${key.toLowerCase().codePointAt(0)};${modCode}u`
+  return null
+}
+
+/**
+ * @param {string} descriptor  e.g. "Enter", "Ctrl+C", "Ctrl+Space"
+ * @param {{ kittyFlags?: number }} [opts]  the app's current kitty keyboard
+ *   flags; with flag 1 set, ambiguous keys use the kitty encoding
+ */
+export function resolveKeys(descriptor, { kittyFlags = 0 } = {}) {
   const { parts, key: rawKey } = splitDescriptor(descriptor)
   const modifiers = { ctrl: false, alt: false, shift: false }
   let key = rawKey
@@ -99,6 +125,12 @@ export function resolveKeys(descriptor) {
 
   const canonical = key.length > 1 ? (CANONICAL[key.toLowerCase()] ?? key) : key
   const modCode = 1 + (modifiers.shift ? 1 : 0) + (modifiers.alt ? 2 : 0) + (modifiers.ctrl ? 4 : 0)
+
+  if (kittyFlags & KITTY_DISAMBIGUATE) {
+    const seq = resolveKitty(canonical, key, modifiers, modCode)
+    if (seq) return seq
+  }
+  if (canonical === 'NumpadEnter') return '\r'
 
   if (modCode > 1) {
     if (canonical === 'Tab' && modifiers.shift && !modifiers.ctrl && !modifiers.alt) return '\x1b[Z'
