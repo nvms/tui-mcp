@@ -112,6 +112,16 @@ export function launch(command, { cols = 80, rows = 24, cwd, env } = {}) {
     _reapTimer: null,
   }
 
+  // The emulator answers terminal queries (cursor position, device
+  // attributes, colour queries) through onData. Without passing those replies
+  // back to the program, an app that probes the terminal waits for an answer
+  // that never comes.
+  term.onData((reply) => {
+    if (!session.exited) {
+      try { p.write(reply) } catch {}
+    }
+  })
+
   p.onData((data) => {
     term.write(data)
 
@@ -225,6 +235,15 @@ export function resize(sessionId, cols, rows) {
   s.term.resize(cols, rows)
   s.cols = cols
   s.rows = rows
+}
+
+// xterm parses writes asynchronously, so bytes the program has already
+// written may not be on the screen yet. Resolves once everything written so
+// far has been parsed; read tools await it, or a read right after output can
+// return the screen from before it.
+export function settled(sessionId) {
+  const s = get(sessionId)
+  return new Promise((resolve) => s.term.write('', resolve))
 }
 
 export async function screenshot(sessionId) {

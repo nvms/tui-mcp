@@ -68,4 +68,7 @@ test('mouse sequences use SGR encoding', () => {
   assert.equal(buildMouseSequence('press', 4, 9), '\x1b[<0;5;10M')
   assert.equal(buildMouseSequence('release', 4, 9, 'right'), '\x1b[<2;5;10m')
   assert.equal(buildMouseSequence('scroll', 0, 0, 'up'), '\x1b[<64;1;1M')
+  assert.equal(buildMouseSequence('move', 4, 9), '\x1b[<35;5;10M')
+  assert.equal(buildMouseSequence('drag', 4, 9), '\x1b[<32;5;10M')
+  assert.equal(buildMouseSequence('drag', 4, 9, 'right'), '\x1b[<34;5;10M')
 })

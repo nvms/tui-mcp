@@ -133,6 +133,15 @@ export function buildMouseSequence(action, x, y, button = 'left') {
   if (action === 'release') {
     return `\x1b[<${btn};${x + 1};${y + 1}m`
   }
+  // Motion reports. With no button held (hover) the code is 32 + 3; with a
+  // button held (drag) it is 32 + that button. A program only receives these
+  // after enabling any-event (1003) or button-event (1002) tracking.
+  if (action === 'move') {
+    return `\x1b[<35;${x + 1};${y + 1}M`
+  }
+  if (action === 'drag') {
+    return `\x1b[<${32 + btn};${x + 1};${y + 1}M`
+  }
   if (action === 'scroll') {
     const dir = button === 'up' ? 64 : 65
     return `\x1b[<${dir};${x + 1};${y + 1}M`

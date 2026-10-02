@@ -51,7 +51,7 @@ claude mcp add --scope user tui-mcp -- npx tui-mcp
 | **cursor** | Get cursor position |
 | **send_keys** | Send a keystroke or combo (`Enter`, `Ctrl+C`, `Ctrl+Up`, `q`) |
 | **send_text** | Type a string of characters |
-| **send_mouse** | Send mouse events |
+| **send_mouse** | Send mouse events (press, release, scroll, move/hover, drag) |
 | **wait_for_text** | Wait for a regex pattern to appear |
 | **wait_for_idle** | Wait until the terminal stops changing |
 | **wait_for_exit** | Wait for the process to exit and get its exit code |

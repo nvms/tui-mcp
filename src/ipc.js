@@ -38,8 +38,9 @@ session.events.on('reaped', (sessionId) => {
   broadcast({ type: 'killed', sessionId })
 })
 
-session.events.on('buffer', (sessionId) => {
+session.events.on('buffer', async (sessionId) => {
   try {
+    await session.settled(sessionId)
     const ansi = session.ansiSnapshot(sessionId)
     broadcast({ type: 'buffer', sessionId, ansi })
   } catch {}
@@ -50,7 +51,10 @@ const commands = {
   kill: ({ sessionId }) => session.kill(sessionId),
   resize: ({ sessionId, cols, rows }) => session.resize(sessionId, cols, rows),
   launch: ({ command, cols, rows, cwd }) => session.launch(command, { cols, rows, cwd }),
-  scrollback: ({ sessionId, lines }) => ({ text: session.getScrollback(sessionId, lines) }),
+  scrollback: async ({ sessionId, lines }) => {
+    await session.settled(sessionId)
+    return { text: session.getScrollback(sessionId, lines) }
+  },
 }
 
 async function handleCommand(socket, msg) {
@@ -97,7 +101,7 @@ export function startIpc() {
   const sockPath = path.join(SOCK_DIR, `${process.pid}.sock`)
   try { fs.unlinkSync(sockPath) } catch {}
 
-  const server = net.createServer((socket) => {
+  const server = net.createServer(async (socket) => {
     clients.add(socket)
 
     sendTo(socket, { type: 'hello', pid: process.pid, version: pkg.version, caps: ['control'] })
@@ -105,19 +109,20 @@ export function startIpc() {
     const sessions = session.listSessions()
     sendTo(socket, { type: 'sessions', sessions })
 
-    for (const s of sessions) {
-      try {
-        const ansi = session.ansiSnapshot(s.sessionId)
-        sendTo(socket, { type: 'buffer', sessionId: s.sessionId, ansi })
-      } catch {}
-    }
-
     readLines(socket, (line) => {
       try { handleCommand(socket, JSON.parse(line)) } catch {}
     })
 
     socket.on('close', () => clients.delete(socket))
     socket.on('error', () => clients.delete(socket))
+
+    for (const s of sessions) {
+      try {
+        await session.settled(s.sessionId)
+        const ansi = session.ansiSnapshot(s.sessionId)
+        sendTo(socket, { type: 'buffer', sessionId: s.sessionId, ansi })
+      } catch {}
+    }
   })
 
   server.on('error', (err) => {

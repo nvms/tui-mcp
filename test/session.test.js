@@ -107,3 +107,40 @@ test('kill removes the session', async () => {
   assert.equal(session.listSessions().find(s => s.sessionId === sessionId), undefined)
   assert.throws(() => session.snapshot(sessionId), /no session/)
 })
+
+test('terminal queries are answered', async () => {
+  // Asks for the cursor position (DSR 6) and prints what came back. Before
+  // replies were wired to the pty, read timed out and printed NONE.
+  const { sessionId } = await launch(
+    `python3 -c "
+import os, sys, tty, termios, select
+fd = sys.stdin.fileno(); old = termios.tcgetattr(fd); tty.setraw(fd)
+try:
+    os.write(1, b'\\x1b[6n')
+    r = select.select([fd], [], [], 2)[0]
+    got = os.read(fd, 32) if r else b''
+finally:
+    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+print('REPLY ' + (repr(got) if got else 'NONE'))
+"; sleep 30`,
+    { cols: 60, rows: 10 }
+  )
+  await session.waitForText(sessionId, 'REPLY', 5000)
+  assert.match(session.snapshot(sessionId), /REPLY b'\\x1b\[\d+;\d+R'/)
+})
+
+test('settled waits for written output to reach the screen', async () => {
+  // A burst of output followed by a marker: once the raw stream contains the
+  // marker, a snapshot taken without waiting for the parser could still show
+  // an earlier screen.
+  for (let i = 0; i < 3; i++) {
+    const { sessionId } = await launch("sh -c 'seq 1 200000; echo ENDMARK; sleep 30'", { cols: 80, rows: 24 })
+    const deadline = Date.now() + 15000
+    while (!session.getRawOutput(sessionId, { limit: 200 }).text.includes('ENDMARK')) {
+      if (Date.now() > deadline) throw new Error('no output')
+      await sleep(1)
+    }
+    await session.settled(sessionId)
+    assert.match(session.snapshot(sessionId), /ENDMARK/)
+  }
+})

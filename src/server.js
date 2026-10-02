@@ -92,6 +92,7 @@ server.registerTool('screenshot', {
     sessionId: z.string().describe('Session ID'),
   },
 }, async ({ sessionId }) => {
+  await session.settled(sessionId)
   const png = await session.screenshot(sessionId)
   return {
     content: [{
@@ -109,6 +110,7 @@ server.registerTool('snapshot', {
     sessionId: z.string().describe('Session ID'),
   },
 }, async ({ sessionId }) => {
+  await session.settled(sessionId)
   const text = session.snapshot(sessionId)
   return { content: [{ type: 'text', text }] }
 })
@@ -121,6 +123,7 @@ server.registerTool('scrollback', {
     lines: z.number().optional().describe('Only return the last N lines (default: entire buffer)'),
   },
 }, async ({ sessionId, lines }) => {
+  await session.settled(sessionId)
   const text = session.getScrollback(sessionId, lines)
   return { content: [{ type: 'text', text }] }
 })
@@ -149,6 +152,7 @@ server.registerTool('read_region', {
     height: z.number().describe('Height in rows'),
   },
 }, async ({ sessionId, row, col, width, height }) => {
+  await session.settled(sessionId)
   const text = session.getRegion(sessionId, row, col, width, height)
   return { content: [{ type: 'text', text }] }
 })
@@ -160,6 +164,7 @@ server.registerTool('cursor', {
     sessionId: z.string().describe('Session ID'),
   },
 }, async ({ sessionId }) => {
+  await session.settled(sessionId)
   const pos = session.getCursor(sessionId)
   return { content: [{ type: 'text', text: JSON.stringify(pos) }] }
 })
@@ -194,10 +199,10 @@ server.registerTool('send_mouse', {
   description: 'Send a mouse event to the TUI app (if the app has mouse support enabled).',
   inputSchema: {
     sessionId: z.string().describe('Session ID'),
-    action: z.enum(['press', 'release', 'scroll']).describe('Mouse action type'),
+    action: z.enum(['press', 'release', 'scroll', 'move', 'drag']).describe('Mouse action type: move = pointer motion with no button held (hover), drag = motion with a button held'),
     x: z.number().describe('Column position (0-based)'),
     y: z.number().describe('Row position (0-based)'),
-    button: z.string().optional().describe('Mouse button: "left", "middle", "right" for press/release; "up", "down" for scroll (default: "left")'),
+    button: z.string().optional().describe('Mouse button: "left", "middle", "right" for press/release/drag; "up", "down" for scroll (default: "left")'),
   },
 }, async ({ sessionId, action, x, y, button }) => {
   session.sendMouse(sessionId, action, x, y, button)
